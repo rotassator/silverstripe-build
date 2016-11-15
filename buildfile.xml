@@ -52,7 +52,7 @@
 	<taskdef name="sstest" classname="build.SilverStripeTestTask" classpath="${project.basedir}" />
 	<taskdef name="ssmodules" classname="build.LoadModulesTask" classpath="${project.basedir}" />
 	<taskdef name="sspatches" classname="build.ApplyPatchesTask" classpath="${project.basedir}" />
-	
+
 	<taskdef name="ssdeploy" classname="build.SilverStripeDeployTask" classpath="${project.basedir}" />
 
 	<target name="help">
@@ -61,7 +61,7 @@
 SilverStripe Australia Project Build
 ------------------------------------
 
-This build file contains targets to assist in creating new SilverStripe project builds. 
+This build file contains targets to assist in creating new SilverStripe project builds.
 
 * Delete the .git directory! You'll eventually add this project to a new location, meaning it is unnecessary to keep the existing git info
 * Edit this build file and change the project name from rename-me to something more accurate
@@ -84,14 +84,19 @@ Important targets
 
 Other features
 
-* In some cases you will want to provide custom patches to dependent modules. As these can't be committed back to this project's repository, 
-  a mechanism exists to include just the .patch diffs. Drop any diffs into build/patches, and these will be applied during the build target. 
+* In some cases you will want to provide custom patches to dependent modules. As these can't be committed back to this project's repository,
+  a mechanism exists to include just the .patch diffs. Drop any diffs into build/patches, and these will be applied during the build target.
 
 		</echo>
 	</target>
 
 	<target name="init" depends="non_interactive,check_properties">
 		<mkdir dir="${build.output.dir}" />
+
+		<!-- prepare for custom managed folders -->
+		<property name="build.managedfolders" value=".managedfolders" />
+		<touch file="${build.managedfolders}" />
+
 	</target>
 
 	<!-- Load modules where sensitive dependency exists -->
@@ -102,12 +107,12 @@ Other features
                 <ssmodules file="${modules.depends.file}" noninteractive="${ni_build}"/>
             </then>
         </if>
-		
+
 	</target>
 
 	<!-- deprecated target; defers to base install target now -->
 	<target name="update-composer" depends="composer-install">
-		
+
 	</target>
 
 	<target name="create_modules_file" unless="modules_file_exists">
@@ -117,7 +122,7 @@ Other features
                 <copy file="${modules.depends.file}.default" tofile="${modules.depends.file}" />
             </then>
         </if>
-		
+
 	</target>
 
 	<!--
@@ -130,12 +135,12 @@ Other features
 
 	<!-- Ensures the build.properties file exists! -->
 	<target name="check_properties" unless="properties_exist">
-		<!-- create a default file only if it doesn't exist --> 
+		<!-- create a default file only if it doesn't exist -->
 		<copy tofile="${project.basedir}/build/build.properties" file="${project.basedir}/build/build.properties.sample" />
 		<property file="${project.basedir}/build/build.properties"></property>
 		<!-- <fail>!!Please create the build/build.properties file before continuing!!</fail> -->
 	</target>
-	
+
 	<!-- default config file set -->
 	<target name="default_configs" description="Ensure default configuration files are available">
 		<!-- if assets folder doesn't exist, create it and the default .htaccess -->
@@ -161,7 +166,7 @@ RemoveType .php .phtml .php3 .php4 .php5 .inc
 				<exec command="touch -c .htaccess" checkreturn="true" />
 			</then>
 		</if>
-		
+
 		<!-- with the following configs, we use the build/ base, but if there's a project specific
 		replacement, we use that -->
 		<property name="config_prefix" value="" />
@@ -180,7 +185,7 @@ RemoveType .php .phtml .php3 .php4 .php5 .inc
 				</copy>
 			</then>
 		</if>
-		
+
 		<property name="config_prefix" value="" override="true" />
 		<if>
 			<available file="mysite/${local.yml.config}" />
@@ -204,7 +209,7 @@ RemoveType .php .phtml .php3 .php4 .php5 .inc
 				<expandproperties />
 			</filterchain>
 		</copy>
-		
+
 		<!-- set up the html report output dir with an htaccess -->
 		<if>
 			<not><available file="ssautesting/artifacts/html/.htaccess" /></not>
@@ -247,7 +252,7 @@ Allow from 127.0.0.1
 	<!-- Installs a freshly checked-out silverstripe project -->
 	<target name="build" depends="init,default_configs">
 		<echo file="mysite/BUILD_NUMBER" append="false">Build ${BUILD_STAMP}</echo>
-		
+
 		<if>
 			<not><available file="_ss_environment.php" /></not>
 			<then>
@@ -259,7 +264,7 @@ global $_FILE_TO_URL_MAPPING;
 $_FILE_TO_URL_MAPPING[dirname(__FILE__)] = 'http://localhost';
 
 // replace this user with the cli username. This determines the
-// silverstripe-cache/(subfolder) path 
+// silverstripe-cache/(subfolder) path
 putenv('APACHE_RUN_USER=deploy');
 
 				]]></echo>
@@ -279,9 +284,9 @@ putenv('APACHE_RUN_USER=deploy');
 		<mkdir dir="${patches.dir}" />
 		<sspatches patchdir="${patches.dir}" />
 	</target>
-	
 
-	<!-- Create a deployable package to use as the base for installing a new site FROM SCRATCH. 
+
+	<!-- Create a deployable package to use as the base for installing a new site FROM SCRATCH.
 	Please use the update-package target for creating a package to use for an update -->
 	<target name="package" depends="init">
 		<property name="currentpackage" value="${build.output.dir}/${package.name}" />
@@ -316,10 +321,11 @@ putenv('APACHE_RUN_USER=deploy');
 				<exclude name="**/*.orig" />
 				<exclude name="README*" />
 				<exclude name="composer.phar" />
+				<excludesfile name="${build.managedfolders}" />
 			</fileset>
 		</tar>
 	</target>
-	
+
 	<!-- a package that includes all items that the phing build normally downloads, which can
 	be just extracted over the top of whatever is pulled out of git. This preserves all the
 	.svn files for dependent modules etc -->
@@ -381,7 +387,7 @@ putenv('APACHE_RUN_USER=deploy');
 		<property name="currentpackage" value="${build.output.dir}/${update-package.name}" />
 		<property name="packagetype" value="update" />
 		<phingcall target="archive-package" />
-		
+
 		<tar destfile="${build.output.dir}/${update-package.name}" compression="gzip" includeemptydirs="false">
 			<fileset dir="${project.basedir}">
 				<include name="**/**" />
@@ -407,6 +413,7 @@ putenv('APACHE_RUN_USER=deploy');
 				<exclude name="cms/**" />
 				<exclude name="framework/**" />
 				<exclude name="silverstripe-cache/" />
+				<excludesfile name="${build.managedfolders}" />
 			</fileset>
 		</tar>
 		<chmod file="${build.output.dir}/${update-package.name}" mode="0664" />
@@ -468,7 +475,7 @@ Deny from all
 		<property name="build" value="1" override="true" />
 		<phingcall target="test" />
 	</target>
-	
+
 	<target name="start_selenium">
 		<if>
 			<not><available file="ssautesting/selenium.jar" /></not>
@@ -478,7 +485,7 @@ Deny from all
 		</if>
 		<exec command="java -jar ssautesting/selenium.jar -Ddummy-config=selenium_${phing.project.name}" spawn="true" checkreturn="true" />
 	</target>
-	
+
 	<target name="kill_selenium">
 		<echo>Killing selenium in ${project.basedir}</echo>
 		<exec command="ps -ef | grep selenium_${phing.project.name} | grep -v grep | awk '{print $2}' | xargs kill " spawn="true" checkreturn="true" />
@@ -519,11 +526,11 @@ Deny from all
 		<!-- delete all similar files from the output -->
 		<delete>
 			<fileset dir="${build.output.dir}">
-				<include name="*${packagetype}.${git.branch}*.tar.gz" />	
+				<include name="*${packagetype}.${git.branch}*.tar.gz" />
 			</fileset>
 		</delete>
 	</target>
-	
+
 	<target name="deploy">
 		<if>
 			<isset property="deploy.incremental" />
@@ -536,7 +543,7 @@ Deny from all
 		</if>
 		<foreach list="${deploy.targets}" param="deptarget" target="deploy-target" />
 	</target>
-	
+
 	<target name="deploy-target">
 		<if>
 			<isset property="deploy.incremental" />
@@ -547,9 +554,9 @@ Deny from all
 				<property name="deploy.package" value="${package.name}" />
 			</else>
 		</if>
-		
-		<ssdeploy 
-			username="${deploy.${deptarget}.user}" 
+
+		<ssdeploy
+			username="${deploy.${deptarget}.user}"
 			password="${deploy.${deptarget}.pass}"
 			pubkeyfile="${deploy.${deptarget}.pubkey}"
 			privkeyfile="${deploy.${deptarget}.privkey}"
@@ -562,7 +569,7 @@ Deny from all
 			package="${deploy.package}"
 			apachegroup="${deploy.${deptarget}.apache-group}"
 		/>
-		
+
 	</target>
 
 	<target name="clean">
