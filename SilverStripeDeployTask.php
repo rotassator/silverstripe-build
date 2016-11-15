@@ -140,10 +140,16 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
                 foreach ($listManaged as $folder) {
                     // clean folder name
                     $folder = str_replace(array("\n", "\r"), '', trim($folder));
+                    // make sure we have a folder name
+                    if (!preg_match('/\S/', $folder)) {
+                        continue;
+                    }
+
                     $source = "$currentPath/$folder";
                     $destination = "$releasePath/$folder";
                     // copy the folder
                     if (file_exists($source) && is_readable($source)) {
+                        $this->log("  $folder");
                         $this->execute("rsync -rl $source $destination");
                     }
                 }
