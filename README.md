@@ -52,5 +52,5 @@ managedfolder/
 other-folder/
 ```
 
-The folders listed here will be copied to the new release folder, similar to how the processing for `assets/`.
+The folders listed here will be copied to the new release folder, similar to the deploy process for `assets/`.
 
