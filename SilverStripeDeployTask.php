@@ -8,458 +8,490 @@
  * @license BSD License http://silverstripe.org/bsd-license/
  */
 class SilverStripeDeployTask extends SilverStripeBuildTask {
-	/* deployment config */
+    /* deployment config */
 
-	private $localpath;
-	private $package = '';
-	private $apachegroup = 'apache';
-	private $remotepath = '';
-	private $incremental = false;
-	
-	private $sapphirepath = 'framework';
+    private $localpath;
+    private $package = '';
+    private $apachegroup = 'apache';
+    private $remotepath = '';
+    private $incremental = false;
 
-	/* SSH configuration */
-	private $host = "";
-	private $port = 22;
-	private $username = "";
-	private $password = "";
-	private $pubkeyfile = '';
-	private $privkeyfile = '';
-	private $privkeyfilepassphrase = '';
-	private $ignoreerrors = false;
-	// are we updating the /current release in-place, or creating a new release?
-	private $inplace = false;
+    private $sapphirepath = 'framework';
 
-	public function main() {
+    /* SSH configuration */
+    private $host = "";
+    private $port = 22;
+    private $username = "";
+    private $password = "";
+    private $pubkeyfile = '';
+    private $privkeyfile = '';
+    private $privkeyfilepassphrase = '';
+    private $ignoreerrors = false;
+    // are we updating the /current release in-place, or creating a new release?
+    private $inplace = false;
 
-		if (!strlen($this->pubkeyfile) && !strlen($this->password)) {
-			// prompt for the password
-			$this->password = $this->getInput("Password for " . $this->username . '@' . $this->host);
-		}
+    public function main() {
 
-		$this->log("Connecting to $this->host");
-		$this->connect();
+        if (!strlen($this->pubkeyfile) && !strlen($this->password)) {
+            // prompt for the password
+            $this->password = $this->getInput("Password for " . $this->username . '@' . $this->host);
+        }
 
-		$currentPath = $this->remotepath . '/current';
-		$releasePath = $this->configureReleaseDir();
+        $this->log("Connecting to $this->host");
+        $this->connect();
 
-		$remotePackage = $releasePath . '/' . $this->package;
-		$localPackage = $this->localpath . '/' . $this->package;
+        $currentPath = $this->remotepath . '/current';
+        $releasePath = $this->configureReleaseDir();
 
-		$this->log("Copying deployment package $localPackage");
-		$this->copyFile($localPackage, $remotePackage);
+        $remotePackage = $releasePath . '/' . $this->package;
+        $localPackage = $this->localpath . '/' . $this->package;
 
-		$this->beforeDeploy($releasePath, $currentPath);
-		$this->extractPackage($remotePackage, $releasePath);
-		$this->doDeploy($releasePath, $currentPath);
-		$this->postDeploy($releasePath);
+        $this->log("Copying deployment package $localPackage");
+        $this->copyFile($localPackage, $remotePackage);
 
-		@ssh2_exec($this->connection, 'exit');
-	}
+        $this->beforeDeploy($releasePath, $currentPath);
+        $this->extractPackage($remotePackage, $releasePath);
+        $this->doDeploy($releasePath, $currentPath);
+        $this->postDeploy($releasePath);
 
-	/**
-	 * Configure the release directory in the remote system
-	 *
-	 * @return string 
-	 */
-	protected function configureReleaseDir() {
-		if ($this->inplace) {
-			$this->log("WARNING: Setting remote path equal to current deployment");
-			$releasePath = $this->remotepath . '/current';
-		} else {
-			$releasePath = $this->remotepath . '/releases/' . date('YmdHis');
-			$this->log("Configuring target directories at $releasePath");
-			$this->execute("mkdir --mode=2775 -p $releasePath/silverstripe-cache");
-			$this->execute("mkdir --mode=2775 -p $releasePath/assets");
-		}
+        @ssh2_exec($this->connection, 'exit');
+    }
 
-		return $releasePath;
-	}
+    /**
+     * Configure the release directory in the remote system
+     *
+     * @return string
+     */
+    protected function configureReleaseDir() {
+        if ($this->inplace) {
+            $this->log("WARNING: Setting remote path equal to current deployment");
+            $releasePath = $this->remotepath . '/current';
+        } else {
+            $releasePath = $this->remotepath . '/releases/' . date('YmdHis');
+            $this->log("Configuring target directories at $releasePath");
+            $this->execute("mkdir --mode=2775 -p $releasePath/silverstripe-cache");
+            $this->execute("mkdir --mode=2775 -p $releasePath/assets");
+        }
 
-	/**
-	 * Copy the existing deployment and/or relevant configuration files
-	 * to the new location
-	 */
-	protected function beforeDeploy($releasePath, $currentPath) {
-		if ($this->incremental && !$this->inplace) {
-			$this->log("Copying existing deployment");
-			// we use rsync here to be able to use --excludes, and -l to preserve symlinks (ie. for assets folder)
-			$this->execute("rsync -rl --exclude=silverstripe-cache $currentPath/* $releasePath/");
+        return $releasePath;
+    }
 
-			$this->log("Copying configs");
-			$this->execute("cp $releasePath/mysite/.assets-htaccess $releasePath/assets/.htaccess");
-			$this->execute("cp $currentPath/.htaccess $releasePath/");
-			$this->execute("cp $currentPath/_ss_environment.php $releasePath/");
-			$this->execute("cp $currentPath/mysite/local.conf.php $releasePath/mysite/local.conf.php");
-			
-			$localConf = "$currentPath/mysite/_config/local.yml";
-			$cmd = "if [ -f $localConf ]; then cp $localConf $releasePath/mysite/_config/; fi";
-			$this->execute($cmd);
-		}
-	}
+    /**
+     * Copy the existing deployment and/or relevant configuration files
+     * to the new location
+     */
+    protected function beforeDeploy($releasePath, $currentPath) {
+        if ($this->incremental && !$this->inplace) {
+            $this->log("Copying existing deployment");
+            // we use rsync here to be able to use --excludes, and -l to preserve symlinks (ie. for assets folder)
+            $this->execute("rsync -rl --exclude=silverstripe-cache $currentPath/* $releasePath/");
 
-	/**
-	 * Extract the remote package
-	 *
-	 * @param type $remotePackage
-	 * @param type $releasePath 
-	 */
-	protected function extractPackage($remotePackage, $releasePath) {
-		$this->log("Extracting $remotePackage in $releasePath");
-		$this->execute("tar -zx -C $releasePath -f $remotePackage");
-		$this->execute("rm $remotePackage");
-	}
+            $this->log("Copying configs");
+            $this->execute("cp $releasePath/mysite/.assets-htaccess $releasePath/assets/.htaccess");
+            $this->execute("cp $currentPath/.htaccess $releasePath/");
+            $this->execute("cp $currentPath/_ss_environment.php $releasePath/");
+            $this->execute("cp $currentPath/mysite/local.conf.php $releasePath/mysite/local.conf.php");
 
-	/**
-	 * Update the new deployment with configs etc
-	 *
-	 * @param type $releasePath
-	 * @param type $currentPath 
-	 */
-	protected function doDeploy($releasePath, $currentPath) {
-		if (!$this->incremental && !$this->inplace) {
-			$this->log("Copying configs");
-			$this->execute("cp $currentPath/.htaccess $releasePath/");
-			$this->execute("cp $currentPath/_ss_environment.php $releasePath/");
-			$this->execute("cp $currentPath/mysite/local.conf.php $releasePath/mysite/local.conf.php");
+            $localConf = "$currentPath/mysite/_config/local.yml";
+            $cmd = "if [ -f $localConf ]; then cp $localConf $releasePath/mysite/_config/; fi";
+            $this->execute($cmd);
+        }
+    }
 
-			$localConf = "$currentPath/mysite/_config/local.yml";
-			$cmd = "if [ -f $localConf ]; then cp $localConf $releasePath/mysite/_config/; fi";
-			$this->execute($cmd);
+    /**
+     * Extract the remote package
+     *
+     * @param type $remotePackage
+     * @param type $releasePath
+     */
+    protected function extractPackage($remotePackage, $releasePath) {
+        $this->log("Extracting $remotePackage in $releasePath");
+        $this->execute("tar -zx -C $releasePath -f $remotePackage");
+        $this->execute("rm $remotePackage");
+    }
 
-			$this->log("Copying site assets");
-			$this->execute("rsync -rl $currentPath/assets $releasePath/");
-			$this->execute("cp $releasePath/mysite/.assets-htaccess $releasePath/assets/.htaccess");
-		}
+    /**
+     * Update the new deployment with configs etc
+     *
+     * @param type $releasePath
+     * @param type $currentPath
+     */
+    protected function doDeploy($releasePath, $currentPath) {
+        if (!$this->incremental && !$this->inplace) {
+            $this->log("Copying configs");
+            $this->execute("cp $currentPath/.htaccess $releasePath/");
+            $this->execute("cp $currentPath/_ss_environment.php $releasePath/");
+            $this->execute("cp $currentPath/mysite/local.conf.php $releasePath/mysite/local.conf.php");
 
-		$this->log("Pre-deploy");
-		$this->executeOptionalPhpScript($releasePath .'/mysite/scripts/pre_deploy.php');
+            $localConf = "$currentPath/mysite/_config/local.yml";
+            $cmd = "if [ -f $localConf ]; then cp $localConf $releasePath/mysite/_config/; fi";
+            $this->execute($cmd);
 
-		$this->log("Backing up database");
-		$this->execute("php $currentPath/mysite/scripts/backup_database.php");
-		
-		$this->log("Saving .htaccess");
-		$this->execute("cp $releasePath/.htaccess $releasePath/mysite/.htaccess.bak");
-		
-		$this->log("Checking for maintenance mode, and switching if found");
-		$maintenanceHtaccess = "$releasePath/mysite/.htaccess-maintenance";
-		$cmd = "if [ -f $maintenanceHtaccess ]; then cp $maintenanceHtaccess $currentPath/.htaccess; fi";
-		$this->execute($cmd);
-		$cmd = "if [ -f $maintenanceHtaccess ]; then cp $maintenanceHtaccess $releasePath/.htaccess; fi";
-		
-		$this->log($cmd);
-		$this->execute($cmd);
+            $this->log("Copying site assets");
+            $this->execute("rsync -rl $currentPath/assets $releasePath/");
+            $this->execute("cp $releasePath/mysite/.assets-htaccess $releasePath/assets/.htaccess");
 
-		$this->log("Executing dev/build");
-		$this->execute("php $releasePath/$this->sapphirepath/cli-script.php dev/build");
+            $this->copyManagedFolders($releasePath, $currentPath);
+        }
 
-		if (!$this->inplace) {
-			$this->preLinkSwitch($releasePath);
-			$this->log("Changing symlinks");
-			$this->execute("rm $currentPath");
-			$this->execute("ln -s $releasePath $currentPath");
-		}
+        $this->log("Pre-deploy");
+        $this->executeOptionalPhpScript($releasePath .'/mysite/scripts/pre_deploy.php');
 
-		$this->log("Restoring .htaccess");
-		$htaccessBak = "$releasePath/mysite/.htaccess.bak";
-		$cmd = "if [ -f $htaccessBak ]; then cp $htaccessBak $releasePath/.htaccess; fi";
-		$this->execute($cmd);
+        $this->log("Backing up database");
+        $this->execute("php $currentPath/mysite/scripts/backup_database.php");
 
-		$this->log("Finalising deployment");
-		$this->execute("touch $releasePath/DEPLOYED");
+        $this->log("Saving .htaccess");
+        $this->execute("cp $releasePath/.htaccess $releasePath/mysite/.htaccess.bak");
 
-	}
+        $this->log("Checking for maintenance mode, and switching if found");
+        $maintenanceHtaccess = "$releasePath/mysite/.htaccess-maintenance";
+        $cmd = "if [ -f $maintenanceHtaccess ]; then cp $maintenanceHtaccess $currentPath/.htaccess; fi";
+        $this->execute($cmd);
+        $cmd = "if [ -f $maintenanceHtaccess ]; then cp $maintenanceHtaccess $releasePath/.htaccess; fi";
 
-	/**
-	 * If the project has a pre_deploy.php script, execute it. 
-	 *
-	 * @param type $releasePath
-	 * @param type $currentPath 
-	 */
-	public function preLinkSwitch($releasePath) {
-		$this->executeOptionalPhpScript($releasePath .'/mysite/scripts/pre_switch.php', dirname($releasePath));
+        $this->log($cmd);
+        $this->execute($cmd);
 
-		$this->log("Setting silverstripe-cache permissions");
-		$this->execute("chgrp -R $this->apachegroup $releasePath/silverstripe-cache", true);
-		$this->execute("find $releasePath/silverstripe-cache -type f -exec chmod 664 {} \;", true);
-		$this->execute("find $releasePath/silverstripe-cache -type d -exec chmod 2775 {} \;", true);
-	}
-	
-	/**
-	 * If the project has a post_deploy.php script, execute it. 
-	 *
-	 * @param type $releasePath
-	 * @param type $currentPath 
-	 */
-	public function postDeploy($releasePath) {
-		$arg = dirname($releasePath);
-		$this->executeOptionalPhpScript($releasePath .'/mysite/scripts/post_deploy.php', $arg);
+        $this->log("Executing dev/build");
+        $this->execute("php $releasePath/$this->sapphirepath/cli-script.php dev/build");
 
-		$this->log("Fixing permissions");
-		// force silverstripe-cache permissions first before the rest. 
-		$this->execute("chgrp -R $this->apachegroup $releasePath/silverstripe-cache", true);
-		$this->execute("find $releasePath/silverstripe-cache -type f -exec chmod 664 {} \;", true);
-		$this->execute("find $releasePath/silverstripe-cache -type d -exec chmod 2775 {} \;", true);
-		
-		$this->execute("chgrp -R $this->apachegroup $releasePath", true);
-		$this->execute("find $releasePath -type f -exec chmod 664 {} \;", true);
-		$this->execute("find $releasePath -type d -exec chmod 2775 {} \;", true);
-		
-		$this->executeOptionalPhpScript($releasePath .'/mysite/scripts/finalise_deployment.php', dirname($releasePath));
-	}
-	
-	protected function executeOptionalPhpScript($script) {
-		$args = func_get_args();
-		array_shift($args);
-		
-		$exe = escapeshellarg($script); 
-		$args = array_map('escapeshellarg', $args);
-		$args = implode(' ', $args);
-		
-		$cmd = "if [ -e $exe ]; then php $exe $args; fi";
-		
-		$this->log("Executing $script with args " . $args);
-		$this->execute($cmd);
-	}
+        if (!$this->inplace) {
+            $this->preLinkSwitch($releasePath);
+            $this->log("Changing symlinks");
+            $this->execute("rm $currentPath");
+            $this->execute("ln -s $releasePath $currentPath");
+        }
 
-	/**
-	 * Executes a command over SSH
-	 *
-	 * @param string $cmd
-	 * @return string
-	 */
-	protected function execute($cmd, $failOkay = false) {
-		$command = '(' . $cmd . '  2>&1) && echo __COMPLETE';
-		// $command = 'sh -c '.escapeshellarg('('.$this->command.'  2>&1) && echo __COMPLETE');
+        $this->log("Restoring .htaccess");
+        $htaccessBak = "$releasePath/mysite/.htaccess.bak";
+        $cmd = "if [ -f $htaccessBak ]; then cp $htaccessBak $releasePath/.htaccess; fi";
+        $this->execute($cmd);
 
-		$stream = ssh2_exec($this->connection, $command);
-		if (!$stream) {
-			throw new BuildException("Could not execute command!");
-		}
+        $this->log("Finalising deployment");
+        $this->execute("touch $releasePath/DEPLOYED");
 
-		stream_set_blocking($stream, true);
-		$data = '';
-		while ($buf = fread($stream, 4096)) {
-			$data .= $buf;
-		}
+    }
 
-		fclose($stream);
+    /**
+     * If the project has a pre_deploy.php script, execute it.
+     *
+     * @param type $releasePath
+     * @param type $currentPath
+     */
+    public function preLinkSwitch($releasePath) {
+        $this->executeOptionalPhpScript($releasePath .'/mysite/scripts/pre_switch.php', dirname($releasePath));
 
-		if (strpos($data, '__COMPLETE') !== false || $this->ignoreerrors || $failOkay) {
-			$data = str_replace('__COMPLETE', '', $data);
-		} else {
-			$this->log("Command failed: $command", Project::MSG_WARN);
-			throw new BuildException("Failed executing command : $data");
-		}
+        $this->log("Setting silverstripe-cache permissions");
+        $this->execute("chgrp -R $this->apachegroup $releasePath/silverstripe-cache", true);
+        $this->execute("find $releasePath/silverstripe-cache -type f -exec chmod 664 {} \;", true);
+        $this->execute("find $releasePath/silverstripe-cache -type d -exec chmod 2775 {} \;", true);
+    }
+
+    /**
+     * If the project has a post_deploy.php script, execute it.
+     *
+     * @param type $releasePath
+     * @param type $currentPath
+     */
+    public function postDeploy($releasePath) {
+        $arg = dirname($releasePath);
+        $this->executeOptionalPhpScript($releasePath .'/mysite/scripts/post_deploy.php', $arg);
+
+        $this->log("Fixing permissions");
+        // force silverstripe-cache permissions first before the rest.
+        $this->execute("chgrp -R $this->apachegroup $releasePath/silverstripe-cache", true);
+        $this->execute("find $releasePath/silverstripe-cache -type f -exec chmod 664 {} \;", true);
+        $this->execute("find $releasePath/silverstripe-cache -type d -exec chmod 2775 {} \;", true);
+
+        $this->execute("chgrp -R $this->apachegroup $releasePath", true);
+        $this->execute("find $releasePath -type f -exec chmod 664 {} \;", true);
+        $this->execute("find $releasePath -type d -exec chmod 2775 {} \;", true);
+
+        $this->executeOptionalPhpScript($releasePath .'/mysite/scripts/finalise_deployment.php', dirname($releasePath));
+    }
+
+    protected function executeOptionalPhpScript($script) {
+        $args = func_get_args();
+        array_shift($args);
+
+        $exe = escapeshellarg($script);
+        $args = array_map('escapeshellarg', $args);
+        $args = implode(' ', $args);
+
+        $cmd = "if [ -e $exe ]; then php $exe $args; fi";
+
+        $this->log("Executing $script with args " . $args);
+        $this->execute($cmd);
+    }
+
+    /**
+     * Executes a command over SSH
+     *
+     * @param string $cmd
+     * @return string
+     */
+    protected function execute($cmd, $failOkay = false) {
+        $command = '(' . $cmd . '  2>&1) && echo __COMPLETE';
+        // $command = 'sh -c '.escapeshellarg('('.$this->command.'  2>&1) && echo __COMPLETE');
+
+        $stream = ssh2_exec($this->connection, $command);
+        if (!$stream) {
+            throw new BuildException("Could not execute command!");
+        }
+
+        stream_set_blocking($stream, true);
+        $data = '';
+        while ($buf = fread($stream, 4096)) {
+            $data .= $buf;
+        }
+
+        fclose($stream);
+
+        if (strpos($data, '__COMPLETE') !== false || $this->ignoreerrors || $failOkay) {
+            $data = str_replace('__COMPLETE', '', $data);
+        } else {
+            $this->log("Command failed: $command", Project::MSG_WARN);
+            throw new BuildException("Failed executing command : $data");
+        }
 
 
-		return $data;
-	}
+        return $data;
+    }
 
-	/**
-	 * Copies a file to the remote system
-	 *
-	 * @param string $local
-	 * @param string $remote 
-	 */
-	protected function copyFile($localEndpoint, $remoteEndpoint) {
+    /**
+     * Copies a file to the remote system
+     *
+     * @param string $local
+     * @param string $remote
+     */
+    protected function copyFile($localEndpoint, $remoteEndpoint) {
 		$port = $this->port ? " -P $this->port " : '';
 		$this->exec("scp -i $this->privkeyfile $port $localEndpoint $this->username@$this->host:$remoteEndpoint");
 		return;
-		
-		ssh2_sftp_mkdir($this->sftp, dirname($remoteEndpoint), 2775, true);
-		$ret = ssh2_scp_send($this->connection, $localEndpoint, $remoteEndpoint);
 
-		if ($ret === false) {
-			throw new BuildException("Could not create remote file '" . $remoteEndpoint . "'");
-		}
-	}
+        ssh2_sftp_mkdir($this->sftp, dirname($remoteEndpoint), 2775, true);
+        $ret = ssh2_scp_send($this->connection, $localEndpoint, $remoteEndpoint);
 
-	/**
-	 * Connects SSH stuff up
-	 */
-	protected function connect() {
-		if (!function_exists('ssh2_connect')) {
-			throw new BuildException("To use SshTask, you need to install the SSH extension.");
-		}
+        if ($ret === false) {
+            throw new BuildException("Could not create remote file '" . $remoteEndpoint . "'");
+        }
+    }
 
-		$this->connection = ssh2_connect($this->host, $this->port);
-		if (is_null($this->connection)) {
-			throw new BuildException("Could not establish connection to " . $this->host . ":" . $this->port . "!");
-		}
+    /**
+     * Copy managed folders to new release folder
+     */
+    protected function copyManagedFolders($releasePath, $currentPath) {
+        // check for managed folders
+        $fileManaged = "$currentPath/.managedfolders";
+        if (!file_exists($fileManaged) || !is_readable($fileManaged)) {
+            return false;
+        }
 
-		$could_auth = null;
-		if (strlen($this->pubkeyfile)) {
-			$could_auth = ssh2_auth_pubkey_file($this->connection, $this->username, $this->pubkeyfile, $this->privkeyfile, $this->privkeyfilepassphrase);
-		} else {
-			$could_auth = ssh2_auth_password($this->connection, $this->username, $this->password);
-		}
+        $this->log("Copying managed folders");
+        // read the list
+        $listManaged = file($fileManaged);
+        foreach ($listManaged as $folder) {
+            // clean folder name
+            $folder = str_replace(array("\n", "\r"), '', trim($folder));
+            // make sure we have a folder name
+            if (!preg_match('/\S/', $folder)) {
+                continue;
+            }
 
-		if (!$could_auth) {
-			throw new BuildException("Could not authenticate connection!");
-		}
+            $source = "$currentPath/$folder";
+            $destination = "$releasePath/$folder";
+            // copy the folder
+            if (file_exists($source) && is_readable($source)) {
+                $this->log("  $folder");
+                $this->execute("rsync -rl $source $destination");
+            }
+        }
+    }
 
-		$this->sftp = ssh2_sftp($this->connection);
-	}
+    /**
+     * Connects SSH stuff up
+     */
+    protected function connect() {
+        if (!function_exists('ssh2_connect')) {
+            throw new BuildException("To use SshTask, you need to install the SSH extension.");
+        }
 
-	public function setSapphirepath($path) {
-		$this->sapphirepath = $path;
-	}
+        $this->connection = ssh2_connect($this->host, $this->port);
+        if (is_null($this->connection)) {
+            throw new BuildException("Could not establish connection to " . $this->host . ":" . $this->port . "!");
+        }
 
-	public function setApachegroup($g) {
-		$this->apachegroup = $g;
-	}
+        $could_auth = null;
+        if (strlen($this->pubkeyfile)) {
+            $could_auth = ssh2_auth_pubkey_file($this->connection, $this->username, $this->pubkeyfile, $this->privkeyfile, $this->privkeyfilepassphrase);
+        } else {
+            $could_auth = ssh2_auth_password($this->connection, $this->username, $this->password);
+        }
 
-	public function getApachegroup() {
-		return $this->apachegroup;
-	}
+        if (!$could_auth) {
+            throw new BuildException("Could not authenticate connection!");
+        }
 
-	public function setLocalpath($p) {
-		$this->localpath = $p;
-	}
+        $this->sftp = ssh2_sftp($this->connection);
+    }
 
-	public function getLocalpath() {
-		return $this->localpath;
-	}
+    public function setSapphirepath($path) {
+        $this->sapphirepath = $path;
+    }
 
-	public function setRemotepath($p) {
-		$this->remotepath = $p;
-	}
+    public function setApachegroup($g) {
+        $this->apachegroup = $g;
+    }
 
-	public function getRemotepath() {
-		return $this->remotepath;
-	}
+    public function getApachegroup() {
+        return $this->apachegroup;
+    }
 
-	public function setPackage($pkg) {
-		$this->package = $pkg;
-	}
+    public function setLocalpath($p) {
+        $this->localpath = $p;
+    }
 
-	public function getPackage() {
-		return $this->package;
-	}
+    public function getLocalpath() {
+        return $this->localpath;
+    }
 
-	public function setIncremental($v) {
-		if (!is_bool($v)) {
-			$v = $v == 'true' || $v == 1;
-		}
+    public function setRemotepath($p) {
+        $this->remotepath = $p;
+    }
 
-		$this->incremental = $v;
-	}
+    public function getRemotepath() {
+        return $this->remotepath;
+    }
 
-	public function getIncremental() {
-		return $this->incremental;
-	}
+    public function setPackage($pkg) {
+        $this->package = $pkg;
+    }
 
-	public function setInplace($v) {
-		if (!is_bool($v)) {
-			$v = $v == 'true' || $v == 1;
-		}
+    public function getPackage() {
+        return $this->package;
+    }
 
-		$this->inplace = $v;
-	}
+    public function setIncremental($v) {
+        if (!is_bool($v)) {
+            $v = $v == 'true' || $v == 1;
+        }
 
-	public function getInplace() {
-		return $this->inplace;
-	}
+        $this->incremental = $v;
+    }
 
-	public function setHost($host) {
-		$this->host = $host;
-	}
+    public function getIncremental() {
+        return $this->incremental;
+    }
 
-	public function getHost() {
-		return $this->host;
-	}
+    public function setInplace($v) {
+        if (!is_bool($v)) {
+            $v = $v == 'true' || $v == 1;
+        }
 
-	public function setPort($port) {
-		if (strpos($port, '${') === false) {
-			$this->port = $port;
-		}
-	}
+        $this->inplace = $v;
+    }
 
-	public function getPort() {
-		return $this->port;
-	}
+    public function getInplace() {
+        return $this->inplace;
+    }
 
-	public function setUsername($username) {
-		$this->username = $username;
-	}
+    public function setHost($host) {
+        $this->host = $host;
+    }
 
-	public function getUsername() {
-		return $this->username;
-	}
+    public function getHost() {
+        return $this->host;
+    }
 
-	public function setPassword($password) {
-		if (strpos($password, '${') === false) {
-			$this->password = $password;
-		}
-	}
+    public function setPort($port) {
+        if (strpos($port, '${') === false) {
+            $this->port = $port;
+        }
+    }
 
-	public function getPassword() {
-		return $this->password;
-	}
+    public function getPort() {
+        return $this->port;
+    }
 
-	/**
-	 * Sets the public key file of the user to scp
-	 */
-	public function setPubkeyfile($pubkeyfile) {
-		if (strpos($pubkeyfile, '${') === false) {
-			$this->pubkeyfile = $pubkeyfile;
-		}
-	}
+    public function setUsername($username) {
+        $this->username = $username;
+    }
 
-	/**
-	 * Returns the pubkeyfile
-	 */
-	public function getPubkeyfile() {
-		return $this->pubkeyfile;
-	}
+    public function getUsername() {
+        return $this->username;
+    }
 
-	/**
-	 * Sets the private key file of the user to scp
-	 */
-	public function setPrivkeyfile($privkeyfile) {
-		$this->privkeyfile = $privkeyfile;
-	}
+    public function setPassword($password) {
+        if (strpos($password, '${') === false) {
+            $this->password = $password;
+        }
+    }
 
-	/**
-	 * Returns the private keyfile
-	 */
-	public function getPrivkeyfile() {
-		return $this->privkeyfile;
-	}
+    public function getPassword() {
+        return $this->password;
+    }
 
-	/**
-	 * Sets the private key file passphrase of the user to scp
-	 */
-	public function setPrivkeyfilepassphrase($privkeyfilepassphrase) {
-		$this->privkeyfilepassphrase = $privkeyfilepassphrase;
-	}
+    /**
+     * Sets the public key file of the user to scp
+     */
+    public function setPubkeyfile($pubkeyfile) {
+        if (strpos($pubkeyfile, '${') === false) {
+            $this->pubkeyfile = $pubkeyfile;
+        }
+    }
 
-	/**
-	 * Returns the private keyfile passphrase
-	 */
-	public function getPrivkeyfilepassphrase($privkeyfilepassphrase) {
-		return $this->privkeyfilepassphrase;
-	}
+    /**
+     * Returns the pubkeyfile
+     */
+    public function getPubkeyfile() {
+        return $this->pubkeyfile;
+    }
 
-	public function setCommand($command) {
-		$this->command = $command;
-	}
+    /**
+     * Sets the private key file of the user to scp
+     */
+    public function setPrivkeyfile($privkeyfile) {
+        $this->privkeyfile = $privkeyfile;
+    }
 
-	public function getCommand() {
-		return $this->command;
-	}
+    /**
+     * Returns the private keyfile
+     */
+    public function getPrivkeyfile() {
+        return $this->privkeyfile;
+    }
 
-	public function setIgnoreErrors($ignore) {
-		if (!is_bool($ignore)) {
-			$ignore = $ignore == 'true' || $ignore == 1;
-		}
+    /**
+     * Sets the private key file passphrase of the user to scp
+     */
+    public function setPrivkeyfilepassphrase($privkeyfilepassphrase) {
+        $this->privkeyfilepassphrase = $privkeyfilepassphrase;
+    }
 
-		$this->ignoreerrors = $ignore;
-	}
+    /**
+     * Returns the private keyfile passphrase
+     */
+    public function getPrivkeyfilepassphrase($privkeyfilepassphrase) {
+        return $this->privkeyfilepassphrase;
+    }
 
-	public function getIgnoreErrors() {
-		return $this->ignoreerrors;
-	}
+    public function setCommand($command) {
+        $this->command = $command;
+    }
 
+    public function getCommand() {
+        return $this->command;
+    }
+
+    public function setIgnoreErrors($ignore) {
+        if (!is_bool($ignore)) {
+            $ignore = $ignore == 'true' || $ignore == 1;
+        }
+
+        $this->ignoreerrors = $ignore;
+    }
+
+    public function getIgnoreErrors() {
+        return $this->ignoreerrors;
+    }
 }
