@@ -15,7 +15,7 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
     private $apachegroup = 'apache';
     private $remotepath = '';
     private $incremental = false;
-	
+
     private $sapphirepath = 'framework';
 
     /* SSH configuration */
@@ -91,7 +91,7 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
             $this->execute("cp $currentPath/.htaccess $releasePath/");
             $this->execute("cp $currentPath/_ss_environment.php $releasePath/");
             $this->execute("cp $currentPath/mysite/local.conf.php $releasePath/mysite/local.conf.php");
-			
+
             $localConf = "$currentPath/mysite/_config/local.yml";
             $cmd = "if [ -f $localConf ]; then cp $localConf $releasePath/mysite/_config/; fi";
             $this->execute($cmd);
@@ -131,29 +131,7 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
             $this->execute("rsync -rl $currentPath/assets $releasePath/");
             $this->execute("cp $releasePath/mysite/.assets-htaccess $releasePath/assets/.htaccess");
 
-            // add managed folders
-            $fileManaged = "$currentPath/.managedfolders";
-            if (file_exists($fileManaged) && is_readable($fileManaged)) {
-                $this->log("Copying managed folders");
-                // read the list
-                $listManaged = file($fileManaged);
-                foreach ($listManaged as $folder) {
-                    // clean folder name
-                    $folder = str_replace(array("\n", "\r"), '', trim($folder));
-                    // make sure we have a folder name
-                    if (!preg_match('/\S/', $folder)) {
-                        continue;
-                    }
-
-                    $source = "$currentPath/$folder";
-                    $destination = "$releasePath/$folder";
-                    // copy the folder
-                    if (file_exists($source) && is_readable($source)) {
-                        $this->log("  $folder");
-                        $this->execute("rsync -rl $source $destination");
-                    }
-                }
-            }
+            $this->copyManagedFolders($releasePath, $currentPath);
         }
 
         $this->log("Pre-deploy");
@@ -161,16 +139,16 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
 
         $this->log("Backing up database");
         $this->execute("php $currentPath/mysite/scripts/backup_database.php");
-		
+
         $this->log("Saving .htaccess");
         $this->execute("cp $releasePath/.htaccess $releasePath/mysite/.htaccess.bak");
-		
+
         $this->log("Checking for maintenance mode, and switching if found");
         $maintenanceHtaccess = "$releasePath/mysite/.htaccess-maintenance";
         $cmd = "if [ -f $maintenanceHtaccess ]; then cp $maintenanceHtaccess $currentPath/.htaccess; fi";
         $this->execute($cmd);
         $cmd = "if [ -f $maintenanceHtaccess ]; then cp $maintenanceHtaccess $releasePath/.htaccess; fi";
-		
+
         $this->log($cmd);
         $this->execute($cmd);
 
@@ -208,7 +186,7 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
         $this->execute("find $releasePath/silverstripe-cache -type f -exec chmod 664 {} \;", true);
         $this->execute("find $releasePath/silverstripe-cache -type d -exec chmod 2775 {} \;", true);
     }
-	
+
     /**
      * If the project has a post_deploy.php script, execute it.
      *
@@ -224,24 +202,24 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
         $this->execute("chgrp -R $this->apachegroup $releasePath/silverstripe-cache", true);
         $this->execute("find $releasePath/silverstripe-cache -type f -exec chmod 664 {} \;", true);
         $this->execute("find $releasePath/silverstripe-cache -type d -exec chmod 2775 {} \;", true);
-		
+
         $this->execute("chgrp -R $this->apachegroup $releasePath", true);
         $this->execute("find $releasePath -type f -exec chmod 664 {} \;", true);
         $this->execute("find $releasePath -type d -exec chmod 2775 {} \;", true);
-		
+
         $this->executeOptionalPhpScript($releasePath .'/mysite/scripts/finalise_deployment.php', dirname($releasePath));
     }
-	
+
     protected function executeOptionalPhpScript($script) {
         $args = func_get_args();
         array_shift($args);
-		
+
         $exe = escapeshellarg($script);
         $args = array_map('escapeshellarg', $args);
         $args = implode(' ', $args);
-		
+
         $cmd = "if [ -e $exe ]; then php $exe $args; fi";
-		
+
         $this->log("Executing $script with args " . $args);
         $this->execute($cmd);
     }
@@ -290,12 +268,43 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
 		$port = $this->port ? " -P $this->port " : '';
 		$this->exec("scp -i $this->privkeyfile $port $localEndpoint $this->username@$this->host:$remoteEndpoint");
 		return;
-		
+
         ssh2_sftp_mkdir($this->sftp, dirname($remoteEndpoint), 2775, true);
         $ret = ssh2_scp_send($this->connection, $localEndpoint, $remoteEndpoint);
 
         if ($ret === false) {
             throw new BuildException("Could not create remote file '" . $remoteEndpoint . "'");
+        }
+    }
+
+    /**
+     * Copy managed folders to new release folder
+     */
+    protected function copyManagedFolders($releasePath, $currentPath) {
+        // check for managed folders
+        $fileManaged = "$currentPath/.managedfolders";
+        if (!file_exists($fileManaged) || !is_readable($fileManaged)) {
+            return false;
+        }
+
+        $this->log("Copying managed folders");
+        // read the list
+        $listManaged = file($fileManaged);
+        foreach ($listManaged as $folder) {
+            // clean folder name
+            $folder = str_replace(array("\n", "\r"), '', trim($folder));
+            // make sure we have a folder name
+            if (!preg_match('/\S/', $folder)) {
+                continue;
+            }
+
+            $source = "$currentPath/$folder";
+            $destination = "$releasePath/$folder";
+            // copy the folder
+            if (file_exists($source) && is_readable($source)) {
+                $this->log("  $folder");
+                $this->execute("rsync -rl $source $destination");
+            }
         }
     }
 
@@ -485,5 +494,4 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
     public function getIgnoreErrors() {
         return $this->ignoreerrors;
     }
-
 }
