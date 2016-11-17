@@ -283,11 +283,16 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
     protected function copyManagedFolders($releasePath, $currentPath) {
         // check for managed folders
         $fileManaged = "$currentPath/.managedfolders";
-        if (!file_exists($fileManaged) || !is_readable($fileManaged)) {
+        $this->log("Copying managed folders");
+        if (!file_exists($fileManaged)) {
+            $this->log("  Nothing to do (.managedfolders file not found)");
+            return false;
+        }
+        if (!is_readable($fileManaged)) {
+            $this->log("  Cannot read .managedfolders file");
             return false;
         }
 
-        $this->log("Copying managed folders");
         // read the list
         $listManaged = file($fileManaged);
         foreach ($listManaged as $folder) {
@@ -301,7 +306,7 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
             $source = "$currentPath/$folder";
             $destination = "$releasePath/$folder";
             // copy the folder
-            if (file_exists($source) && is_readable($source)) {
+            if (file_exists($source)) {
                 $this->log("  $folder");
                 $this->execute("rsync -rl $source $destination");
             }
