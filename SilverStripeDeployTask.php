@@ -308,10 +308,8 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
             $source = "{$currentPath}/{$folder}";
             $destination = "{$releasePath}/{$folder}";
             // copy the folder
-            if (file_exists($source)) {
-                $this->log("  {$folder}");
-                $this->execute("rsync -rl {$source} {$destination}");
-            }
+            $this->log("  {$folder}");
+            $this->execute("if [ -d {$source} ]; then rsync -rl {$source} {$destination}; fi");
         }
     }
 
