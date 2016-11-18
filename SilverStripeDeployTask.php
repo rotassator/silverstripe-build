@@ -284,8 +284,8 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
         $this->log("Copying managed folders");
         // clear the file status cache
         clearstatcache();
-        // check for managed folders
-        $fileManaged = "{$currentPath}/.managedfolders";
+        // check for managed folders in workspace root
+        $fileManaged = '.managedfolders';
         if (!is_file($fileManaged)) {
             $this->log("  Nothing to do ({$fileManaged} not found)");
             return false;
