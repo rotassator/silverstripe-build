@@ -281,10 +281,12 @@ class SilverStripeDeployTask extends SilverStripeBuildTask {
      * Copy managed folders to new release folder
      */
     protected function copyManagedFolders($releasePath, $currentPath) {
+        $this->log("Copying managed folders");
+        // clear the file status cache
+        clearstatcache();
         // check for managed folders
         $fileManaged = "{$currentPath}/.managedfolders";
-        $this->log("Copying managed folders");
-        if (!file_exists($fileManaged)) {
+        if (!is_file($fileManaged)) {
             $this->log("  Nothing to do ({$fileManaged} not found)");
             return false;
         }
